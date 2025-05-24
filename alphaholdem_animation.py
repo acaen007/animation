@@ -125,15 +125,17 @@ class PokerFullGameScene(ThreeDScene):
 
     def setup(self):
         self.camera.background_color = COLOR_SCHEME["background"]
-        # Zoomed‐out so we see table far left and tensors on the right
-        self.set_camera_orientation(phi=25 * DEGREES, theta=-90 * DEGREES, zoom=0.7)
+        # Zoomed‐out so table at left and tensors at right fit comfortably
+        self.set_camera_orientation(phi=0 * DEGREES, theta=-90 * DEGREES, zoom=0.7)
 
     def construct(self):
         # 1) Table further left
         table = Circle(radius=3, color=COLOR_SCHEME["environment"], fill_opacity=0.3)
-        table.shift(LEFT * 4)
+        table.shift(LEFT * 6)
         self.play(FadeIn(table))
         self.wait(0.3)
+
+        table_center = table.get_center()
 
         # 2) Prompt
         prompt = Text("Dealing Texas Hold'em", font_size=36, color=COLOR_SCHEME["text"])
@@ -142,11 +144,13 @@ class PokerFullGameScene(ThreeDScene):
         self.wait(0.7)
 
         # 3) Hero & villain card positions—hero lower, villain higher
-        hero_pos = [np.array([-4.5, -2.0, 0]), np.array([-3.5, -2.0, 0])]
-        opp_pos  = [np.array([-4.5,  2.0, 0]), np.array([-3.5,  2.0, 0])]
+        hero_pos = [table_center + np.array([-0.5, -2.0, 0]),
+                    table_center + np.array([ 0.5, -2.0, 0])]
+        opp_pos  = [table_center + np.array([-0.5,  2.0, 0]),
+                    table_center + np.array([ 0.5,  2.0, 0])]
 
         # 4) Create hero hole cards (face up)
-        hero_hole = [("A","♠"), ("K","♥")]
+        hero_hole  = [("A","♠"), ("K","♥")]
         hero_cards = VGroup()
         for pos,(r,s) in zip(hero_pos, hero_hole):
             card = Square(0.6, fill_color=WHITE, fill_opacity=1).move_to(pos)
@@ -161,51 +165,60 @@ class PokerFullGameScene(ThreeDScene):
 
         # 6) Deal animation
         for c in opp_cards + hero_cards:
-            c.shift(UP*5)
-            self.add(c)
+            self.add(c.shift(UP*5))
             self.play(c.animate.shift(DOWN*5), run_time=0.4)
             self.wait(0.1)
         self.wait(0.3)
         self.play(FadeOut(prompt))
 
         # 7) Pre-flop bets positioned under hero / above villain
-        hero_bet  = Text("Hero (SB) calls 10", font_size=24, color=COLOR_SCHEME["text"])\
-                       .next_to(hero_cards, DOWN, buff=0.5)
-        villain_bet = Text("BB checks", font_size=24, color=COLOR_SCHEME["text"])\
-                         .next_to(opp_cards, UP, buff=0.5)
-        self.play(Write(hero_bet), Write(villain_bet))
-        self.wait(0.7)
+        hero_bet     = Text("Hero (SB) calls 10", font_size=24, color=COLOR_SCHEME["text"])\
+                          .next_to(hero_cards, DOWN, buff=0.5)
+        villain_bet  = Text("BB checks",        font_size=24, color=COLOR_SCHEME["text"])\
+                          .next_to(opp_cards,   UP,   buff=0.5)
+        self.play(Write(hero_bet))
+        self.wait(0.4)
+        self.play(Write(villain_bet))
+        self.wait(0.6)
 
-        # 8) Bigger, split-out tensors on the right
-        card_tensor   = create_tensor_3d((1.0, 0.6, 1.2), COLOR_SCHEME["card_tensor"])
-        action_tensor = create_tensor_3d((1.0, 0.6, 1.2), COLOR_SCHEME["action_tensor"])
-        # Add labels to clarify blocks
-        card_label   = Text("Card Tensor", font_size=24, color=COLOR_SCHEME["text"])\
-                         .next_to(card_tensor, UP, buff=0.2)
-        action_label = Text("Action Tensor", font_size=24, color=COLOR_SCHEME["text"])\
-                         .next_to(action_tensor, UP, buff=0.2)
+        # 8) Bigger, split-off tensors on the right
+        card_tensor   = create_tensor_3d((1.5, 0.9, 1.8), COLOR_SCHEME["card_tensor"])
+        action_tensor = create_tensor_3d((1.5, 0.9, 1.8), COLOR_SCHEME["action_tensor"])
+        card_label    = Text("Card Tensor",   font_size=24, color=COLOR_SCHEME["text"])
+        action_label  = Text("Action Tensor", font_size=24, color=COLOR_SCHEME["text"])
 
-        card_tensor.to_corner(DR, buff=1.0)
-        action_tensor.to_corner(DR, buff=1.0).shift(DOWN*3)
+        # scale up for readability
+        card_tensor.scale(1.5)
+        action_tensor.scale(1.5)
+
+        card_label.next_to(card_tensor, UP, buff=0.3)
+        action_label.next_to(action_tensor, UP, buff=0.3)
+
+        card_tensor.to_corner(UR, buff=1.0)
+        card_label.next_to(card_tensor, UP, buff=0.3)
+        action_tensor.next_to(card_tensor, DOWN, buff=1.2)
+        action_label.next_to(action_tensor, UP, buff=0.3)
+
         self.play(
             FadeIn(card_tensor), FadeIn(card_label),
             FadeIn(action_tensor), FadeIn(action_label),
         )
         self.wait(0.5)
 
-        # Utility for computing a cell's 3D location
+        # Utility: cell position in a tensor block
         def tensor_pos(tensor, row, col, dep):
-            h,w,d = 1.0, 0.6, 1.2
+            h, w, d = 1.5*1.2, 0.9*1.2, 1.8*1.2
             base = tensor.get_center() + np.array([-w/2, h/2, d/2])
             return base + np.array([col*(w/4), -row*(h/4), -dep*(d/6)])
 
         flashes = VGroup()
 
         # 9) Map hero hole → card_tensor at (0,0,0),(0,1,0)
-        for card,(r,c,dep) in zip(hero_cards, [(0,0,0),(0,1,0)]):
-            dot = Dot(radius=0.08, color=YELLOW)
+        indices = [(0,0,0),(0,1,0)]
+        for card,(r,c,dep) in zip(hero_cards, indices):
+            dot   = Dot(radius=0.08, color=YELLOW)
             start = card.get_center()
-            end   = tensor_pos(card_tensor, r, c, dep)
+            end   = tensor_pos(card_tensor, r,c,dep)
             self.add(dot)
             self.play(MoveAlongPath(dot, Line(start, end), run_time=1.0))
             flashes.add(dot)
@@ -213,51 +226,55 @@ class PokerFullGameScene(ThreeDScene):
 
         # 10) Map pre-flop actions → action_tensor depth=0
         for txt,(r,c) in [(hero_bet,(0,1)), (villain_bet,(1,0))]:
-            dot = Dot(radius=0.08, color=RED)
+            dot   = Dot(radius=0.08, color=RED)
             start = txt.get_center()
-            end   = tensor_pos(action_tensor, r, c, 0)
+            end   = tensor_pos(action_tensor, r,c,0)
             self.add(dot)
             self.play(MoveAlongPath(dot, Line(start, end), run_time=0.8))
             flashes.add(dot)
         self.wait(0.5)
 
-        # 11) Flop reveal in the center, spaced out
+        # 11) Flop reveal centered *on the table*, with no overlap
+        flop_vals = [("5","♣"),("J","♦"),("10","♥")]
         flop_cards = VGroup()
-        flop = [("5","♣"),("J","♦"),("10","♥")]
-        # five evenly‐spaced community slots
-        community_x = np.linspace(-1.5, 1.5, 5)
-        for pos_x,(r,s) in zip(community_x[:3], flop):
-            pos = np.array([pos_x, 0.0, 0])
+        # compute 3 evenly spaced x positions across the table diameter
+        xs = np.linspace(table_center[0]-2, table_center[0], 3)
+        for x,(r,s) in zip(xs, flop_vals):
+            pos = np.array([x, table_center[1], 0])
             c   = Square(0.8, fill_color=WHITE, fill_opacity=1).move_to(pos)
             lbl = Text(f"{r}{s}", font_size=28, color=BLACK).move_to(c)
-            flop_cards.add(VGroup(c,lbl))
+            flop_cards.add(VGroup(c, lbl))
+
         for fc in flop_cards:
-            fc.shift(UP*5)
-            self.add(fc)
+            self.add(fc.shift(UP*5))
             self.play(fc.animate.shift(DOWN*5), run_time=0.5)
         self.wait(0.5)
 
         # 12) Map flop → card_tensor depths=1–3
         for card,dep in zip(flop_cards, [1,2,3]):
-            dot = Dot(radius=0.08, color=YELLOW)
+            dot   = Dot(radius=0.08, color=YELLOW)
             start = card.get_center()
             end   = tensor_pos(card_tensor, 1, dep-1, dep)
             self.add(dot)
-            self.play(MoveAlongPath(dot, Line(start, end), run_time=1.0))
+            self.play(MoveAlongPath(dot, Line(start, end), run_time=0.7))
             flashes.add(dot)
         self.wait(0.5)
 
-        # 13) Flop bets under/over cards
+        # 13) Flop bets under hero / above villain
         flop_hero_bet    = Text("Hero bets 20", font_size=24, color=COLOR_SCHEME["text"])\
                                .next_to(hero_cards, DOWN, buff=1.2)
         flop_villain_bet = Text("BB calls 20", font_size=24, color=COLOR_SCHEME["text"])\
-                               .next_to(opp_cards, UP,   buff=1.2)
-        self.play(Write(flop_hero_bet), Write(flop_villain_bet))
-        self.wait(0.5)
+                               .next_to(opp_cards,   UP,   buff=1.2)
+        
+        self.play(Write(flop_hero_bet))
+        self.wait(0.3)
+        self.play(Write(flop_villain_bet))
+        self.wait(0.3)
+        
         for txt,(r,c) in [(flop_hero_bet,(0,2)), (flop_villain_bet,(1,2))]:
-            dot = Dot(radius=0.08, color=RED)
+            dot   = Dot(radius=0.08, color=RED)
             start = txt.get_center()
-            end   = tensor_pos(action_tensor, r, c, 1)
+            end   = tensor_pos(action_tensor, r,c,1)
             self.add(dot)
             self.play(MoveAlongPath(dot, Line(start, end), run_time=0.8))
         self.wait(0.5)
@@ -266,38 +283,40 @@ class PokerFullGameScene(ThreeDScene):
         turn = VGroup(
             Square(0.8, fill_color=WHITE, fill_opacity=1),
             Text("Q♠", font_size=28, color=BLACK)
-        ).arrange().move_to([community_x[3], 0,0])
+        ).arrange().move_to([xs[2]+1, table_center[1], 0])
         turn.shift(UP*5); self.add(turn)
         self.play(turn.animate.shift(DOWN*5), run_time=0.5)
         dot = Dot(radius=0.08, color=YELLOW)
         self.add(dot)
-        self.play(MoveAlongPath(dot, Line(
-            turn.get_center(),
-            tensor_pos(card_tensor, 2, 0, 4)
-        ), run_time=1.0))
+        self.play(MoveAlongPath(
+            dot, Line(turn.get_center(),
+                      tensor_pos(card_tensor, 2, 0, 4)),
+            run_time=1.0
+        ))
         self.wait(0.5)
 
         # 15) River reveal at 5th community slot → depth=5
         river = VGroup(
             Square(0.8, fill_color=WHITE, fill_opacity=1),
             Text("7♦", font_size=28, color=BLACK)
-        ).arrange().move_to([community_x[4], 0,0])
+        ).arrange().move_to([xs[2]+2, table_center[1], 0])
         river.shift(UP*5); self.add(river)
         self.play(river.animate.shift(DOWN*5), run_time=0.5)
         dot = Dot(radius=0.08, color=YELLOW)
         self.add(dot)
-        self.play(MoveAlongPath(dot, Line(
-            river.get_center(),
-            tensor_pos(card_tensor, 3, 0, 5)
-        ), run_time=1.0))
+        self.play(MoveAlongPath(
+            dot, Line(river.get_center(),
+                      tensor_pos(card_tensor, 3, 0, 5)),
+            run_time=1.0
+        ))
         self.wait(0.5)
 
         # 16) Showdown: flip opp hole cards
         anims = []
         for idx,(r,s) in enumerate([("9","♣"),("J","♦")]):
-            anims.append(FadeOut(opp_cards[idx]))
+            anims += [FadeOut(opp_cards[idx])]
             face = Text(f"{r}{s}", font_size=24, color=BLACK).move_to(opp_cards[idx])
-            anims.append(FadeIn(face))
+            anims += [FadeIn(face)]
         self.play(*anims)
         self.wait(1)
 
@@ -310,7 +329,9 @@ class PokerFullGameScene(ThreeDScene):
                     font_size=28, color=COLOR_SCHEME["text"]).to_edge(DOWN)
         self.play(Write(note))
         self.wait(2)
-        self.play(FadeOut(note), FadeOut(VGroup(card_tensor, card_label, action_tensor, action_label)))
+        self.play(FadeOut(note), FadeOut(VGroup(
+            card_tensor, card_label, action_tensor, action_label
+        )))
 
 
 class Figure2Architecture(ThreeDScene):
